@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/populate_grid"
+        android:orderInCategory="100"
+        android:title="@string/randomize"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/clear_grid"
+        android:orderInCategory="100"
+        android:title="@string/clear"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/resize"
+        android:orderInCategory="100"
+        android:title="@string/resize"
+        app:showAsAction="never" />
+</menu>
