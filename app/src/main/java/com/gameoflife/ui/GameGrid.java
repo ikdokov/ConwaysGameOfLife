@@ -5,18 +5,15 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.view.MotionEvent;
-import android.view.ScaleGestureDetector;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 
 import com.gameoflife.core.GameLogic;
 
-public class GameGrid extends SurfaceView implements Runnable, SurfaceHolder.Callback, ScaleGestureDetector.OnScaleGestureListener {
+public class GameGrid extends SurfaceView implements SurfaceHolder.Callback {
 
-    private int cellCount;
-    private float cellSize;
-
-    private float scaleValue = 1.0f;
+    private int gridLength;
+    private float cellSizeInPixels;
 
     private Paint grayPaintBrush = new Paint();
     private Paint whitePaintBrush = new Paint();
@@ -25,20 +22,20 @@ public class GameGrid extends SurfaceView implements Runnable, SurfaceHolder.Cal
 
     private GameLogic gameLogic;
 
-    private Thread gameThread;
+    private Thread redrawThread;
 
     private Canvas canvas;
-    private SurfaceHolder surfaceHolder;
+    private final SurfaceHolder surfaceHolder;
 
-    private ScaleGestureDetector sgd;
-
-    public GameGrid(final Context context, int cellCount) {
+    public GameGrid(final Context context, int gridLength) {
         super(context);
-        this.cellCount = cellCount;
+
+        this.gridLength = gridLength;
+
         surfaceHolder = getHolder();
         surfaceHolder.addCallback(this);
+
         initBrushes();
-        sgd = new ScaleGestureDetector(context, this);
     }
 
     public void initBrushes() {
@@ -51,32 +48,30 @@ public class GameGrid extends SurfaceView implements Runnable, SurfaceHolder.Cal
         grayPaintBrush.setStrokeWidth(1);
     }
 
-    @Override
-    public void run() {
+    private class GameLoop extends Thread {
+        @Override
+        public void run() {
 
-        while (canDraw) {
-            if(!surfaceHolder.getSurface().isValid()) {
-                continue;
-            }
+            while (canDraw) {
+                try {
+                    canvas = surfaceHolder.lockCanvas();
 
-            try {
-                canvas = surfaceHolder.lockCanvas();
+                    synchronized (surfaceHolder) {
+                        doDraw(canvas);
+                        gameLogic.evolve();
+                    }
 
-                synchronized (surfaceHolder) {
-                    doDraw(canvas);
-                    gameLogic.evolve();
+                } finally {
+                    if (canvas != null) {
+                        surfaceHolder.unlockCanvasAndPost(canvas);
+                    }
                 }
 
-            } finally {
-                if (canvas != null) {
-                    surfaceHolder.unlockCanvasAndPost(canvas);
+                try {
+                    Thread.sleep(30);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
                 }
-            }
-
-            try {
-                Thread.sleep(30);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
             }
         }
     }
@@ -84,16 +79,16 @@ public class GameGrid extends SurfaceView implements Runnable, SurfaceHolder.Cal
     public void doDraw(Canvas canvas) {
         canvas.drawColor(Color.BLACK);
 
-        float cellMiddle = cellSize / 2;
+        float cellMiddle = cellSizeInPixels / 2;
 
         boolean [][] currentGrid = gameLogic.getCurrentGeneration();
 
         for (int i = 0; i < currentGrid.length; i++) {
             for (int j = 0; j < currentGrid[i].length; j++) {
                 if (currentGrid[i][j]) {
-                    canvas.drawCircle((j * cellSize) + cellMiddle, (i * cellSize) + cellMiddle, cellMiddle, whitePaintBrush);
+                    canvas.drawCircle((j * cellSizeInPixels) + cellMiddle, (i * cellSizeInPixels) + cellMiddle, cellMiddle, whitePaintBrush);
                 } else {
-                    canvas.drawCircle((j * cellSize) + cellMiddle, (i * cellSize) + cellMiddle, cellMiddle, grayPaintBrush);
+                    canvas.drawCircle((j * cellSizeInPixels) + cellMiddle, (i * cellSizeInPixels) + cellMiddle, cellMiddle, grayPaintBrush);
                 }
             }
         }
@@ -101,29 +96,24 @@ public class GameGrid extends SurfaceView implements Runnable, SurfaceHolder.Cal
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-
-        int row = (int)(event.getY() / cellSize);
-        int column = (int)(event.getX() / cellSize);
-
-        sgd.onTouchEvent(event);
-
-        switch (event.getAction()) {
-            case MotionEvent.ACTION_DOWN:
-                gameLogic.resurrectCell(row, column);
-                return true;
-            case MotionEvent.ACTION_MOVE:
-                gameLogic.resurrectCell(row, column);
-                return true;
-
-            default:
-                invalidate();
+        if (event.getAction() == MotionEvent.ACTION_MOVE || event.getAction() == MotionEvent.ACTION_DOWN) {
+            gameLogic.resurrectCell(getRowIndex(event), getColumnIndex(event));
+            return true;
         }
 
         return super.onTouchEvent(event);
     }
 
+    private int getColumnIndex(MotionEvent event) {
+        return (int)(event.getX() / cellSizeInPixels);
+    }
+
+    private int getRowIndex(MotionEvent event) {
+        return (int)(event.getY() / cellSizeInPixels);
+    }
+
     public void randomizeGrid(){
-        gameLogic.clearGrid();
+        clearGrid();
         gameLogic.randomize();
     }
 
@@ -137,77 +127,57 @@ public class GameGrid extends SurfaceView implements Runnable, SurfaceHolder.Cal
     }
 
     private void initGameLogic() {
-        int width = getWidth();// surfaceHolder.getSurfaceFrame().width();
-        int height = getHeight(); // surfaceHolder.getSurfaceFrame().height();
+        int width = getWidth();
+        int height = getHeight();
 
-        int columns, rows;
-
+        // find the shorter side to calculate cell size in pixels and the number of cells which should be
+        // needed to fill the entire screen
         if (width > height) {
-            rows = cellCount;
-            cellSize = height / (float) cellCount;
-            columns = (int)(width / cellSize);
+            cellSizeInPixels = calculateCellSizeInPixels(height);
+            gameLogic = new GameLogic(gridLength, (int)(width / cellSizeInPixels));
         } else {
-            columns = cellCount;
-            cellSize = width / (float) cellCount;
-            rows = (int)(height / cellSize);
+            cellSizeInPixels = calculateCellSizeInPixels(width);
+            gameLogic = new GameLogic((int)(height / cellSizeInPixels), gridLength);
         }
+    }
 
-        gameLogic = new GameLogic(rows, columns);
+    private float calculateCellSizeInPixels(int length) {
+        return length / (float) gridLength;
     }
 
     @Override
     public void surfaceChanged(SurfaceHolder surfaceHolder, int i, int i1, int i2) {
-        startGameThread();
+        startRedrawThread();
     }
 
     @Override
     public void surfaceDestroyed(SurfaceHolder surfaceHolder) {
-        stopGameThread();
+        stopRedrawThread();
     }
 
-    private void startGameThread() {
+    private void startRedrawThread() {
         canDraw = true;
-        gameThread = new Thread(this);
-        gameThread.start();
+        redrawThread = new GameLoop();
+        redrawThread.start();
     }
 
-    private void stopGameThread() {
+    private void stopRedrawThread() {
         canDraw = false;
         try {
-            gameThread.join();
+            redrawThread.join();
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
     }
 
-    public void setGridSize(int size) {
-        stopGameThread();
-        cellCount = size;
+    public void changeGridLength(int newLength) {
+        stopRedrawThread();
+        gridLength = newLength;
         initGameLogic();
-        startGameThread();
+        startRedrawThread();
     }
 
-    @Override
-    public boolean onScale(ScaleGestureDetector scaleGestureDetector) {
-        scaleValue *= scaleGestureDetector.getScaleFactor();
-
-        scaleValue = Math.max(5.0f, Math.min(scaleValue, 300f));
-
-        setGridSize((int)scaleValue);
-        return false;
-    }
-
-    @Override
-    public boolean onScaleBegin(ScaleGestureDetector scaleGestureDetector) {
-        return true;
-    }
-
-    @Override
-    public void onScaleEnd(ScaleGestureDetector scaleGestureDetector) {
-
-    }
-
-    public int getCellCount() {
-        return cellCount;
+    public int getGridLength() {
+        return gridLength;
     }
 }

@@ -13,7 +13,7 @@ import android.widget.NumberPicker;
 
 public class MainActivity extends AppCompatActivity {
 
-    public static final int INITIAL_CELL_COUNT = 50;
+    public static final int INITIAL_GRID_LENGTH = 50;
     private GameGrid gameGrid;
     private LinearLayout gameLayout;
 
@@ -25,7 +25,7 @@ public class MainActivity extends AppCompatActivity {
 
         gameLayout = (LinearLayout) findViewById(R.id.game_layout);
 
-        gameGrid = new GameGrid(this, INITIAL_CELL_COUNT);
+        gameGrid = new GameGrid(this, INITIAL_GRID_LENGTH);
 
         gameLayout.addView(gameGrid);
     }
@@ -78,14 +78,14 @@ public class MainActivity extends AppCompatActivity {
         final NumberPicker np = (NumberPicker) dialogView.findViewById(R.id.numberPicker1);
         np.setMinValue(10);
         np.setMaxValue(500);
-        np.setValue(gameGrid.getCellCount());
+        np.setValue(gameGrid.getGridLength());
 
         np.setWrapSelectorWheel(false);
 
         builder.setPositiveButton(R.string.set_grid_size, new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialogInterface, int i) {
-                gameGrid.setGridSize(np.getValue());
+                gameGrid.changeGridLength(np.getValue());
             }
         });
 
